@@ -1,0 +1,159 @@
+// Each #kernel tells which function to compile; you can have many kernels
+
+#pragma kernel GetMax4Weights
+#pragma kernel GetMax4WeightsA
+#define group_x 1418
+#define group_y 1
+#define group_z 1
+#define thread_x 1
+#define thread_y 1
+#define thread_z 1
+
+struct perVertex 
+{
+	int   bonesId[4];
+	float bonesWeight[4];
+};
+RWStructuredBuffer<perVertex> vertsData;
+RWStructuredBuffer<float3> vertsDir;
+RWStructuredBuffer<float3> bonesDir;
+int bonesCount;
+
+
+[numthreads(thread_x,thread_y,thread_z)]
+void GetMax4Weights (uint3 id : SV_DispatchThreadID,uint3 gid:SV_GROUPID,uint3 gtid:SV_GROUPTHREADID, uint gidx:SV_GROUPINDEX)
+{
+    uint idx = id.x + id.y * thread_x * group_x + id.z * thread_x * group_x * thread_y * group_y;
+    // Compute max4 bone weights for 1 vertex
+    float maxW[4] = {100,1000,10000,100000};
+    int  maxId[4] = {-1,-1,-1,-1};
+    float3 vertdir = vertsDir[gid.x];
+
+
+    for (int i =0;i<bonesCount;i++ )
+    {        
+        
+        float3 bonedir = bonesDir[i];
+
+        float dist = length(vertdir-bonedir);   
+
+        if(dist<maxW[0])
+        {
+            maxW[3] = maxW[2];maxId[3] = maxId[2];
+            maxW[2] = maxW[1];maxId[2] = maxId[1];
+            maxW[1] = maxW[0];maxId[1] = maxId[0];
+            maxW[0] = dist;maxId[0] = i;
+        }else
+        {
+            if(dist<maxW[1])
+            {
+                maxW[3] = maxW[2];maxId[3] = maxId[2];
+                maxW[2] = maxW[1];maxId[2] = maxId[1];
+                maxW[1] = dist;maxId[1] = i;
+
+            }else
+            {
+                if(dist<maxW[2])
+                {
+                    maxW[3] = maxW[2];maxId[3] = maxId[2];
+                    maxW[2] = dist;maxId[2] = i;
+                }else
+                {
+                    if(dist<maxW[3])
+                    {
+                        maxW[3] = dist;maxId[3] = i;
+                    }
+                }
+            }
+        }
+    }
+
+    vertsData[gid.x].bonesId[0] = maxId[0];
+    vertsData[gid.x].bonesId[1] = maxId[1];
+    vertsData[gid.x].bonesId[2] = maxId[2];
+    vertsData[gid.x].bonesId[3] = maxId[3];
+    float powerNum = 16;
+	float distSum = (maxW[0]+maxW[1]+maxW[2]+maxW[3]);
+    maxW[0] = exp(-powerNum*maxW[0]/distSum);
+    maxW[1] = exp(-powerNum*maxW[1]/distSum);
+    maxW[2] = exp(-powerNum*maxW[2]/distSum);
+    maxW[3] = exp(-powerNum*maxW[3]/distSum);
+    
+    // maxW[0] = pow(maxW[0],powerNum);
+    // maxW[1] = pow(maxW[1],powerNum);
+    // maxW[2] = pow(maxW[2],powerNum);
+    // maxW[3] = pow(maxW[3],powerNum);  
+
+    float wSum = maxW[0]+maxW[1]+maxW[2]+maxW[3];
+    float4 n = float4(maxW[0],maxW[1],maxW[2],maxW[3])/wSum;
+	
+    vertsData[gid.x].bonesWeight[0] = n.x;
+    vertsData[gid.x].bonesWeight[1] = n.y;
+    vertsData[gid.x].bonesWeight[2] = n.z;
+    vertsData[gid.x].bonesWeight[3] = n.w; 
+}
+
+
+[numthreads(thread_x,thread_y,thread_z)]
+void GetMax4WeightsA (uint3 id : SV_DispatchThreadID,uint3 gid:SV_GROUPID,uint3 gtid:SV_GROUPTHREADID, uint gidx:SV_GROUPINDEX)
+{
+    uint idx = id.x + id.y * thread_x * group_x + id.z * thread_x * group_x * thread_y * group_y;
+    // Compute max4 bone weights for 1 vertex
+    float maxW[4] = {0,0,0,0};
+    int  maxId[4] = {-1,-1,-1,-1};
+    float3 vertdir = vertsDir[gid.x];
+
+
+    for (int i =0;i<bonesCount;i++ )
+    {        
+        
+        float3 bonedir = bonesDir[i];
+        //float dist = saturate(dot(vertdir,bonedir));
+        float dist = exp(-1.0*length(vertdir-bonedir));   
+
+        if(dist>maxW[0])
+        {
+            maxW[0] = dist;
+            maxId[0] = i;
+        }else
+        {
+            if(dist>maxW[1])
+            {
+                maxW[1] = dist;
+                maxId[1] = i;
+            }else
+            {
+                if(dist>maxW[2])
+                {
+                    maxW[2] = dist;
+                    maxId[2] = i;
+                }else
+                {
+                    if(dist>maxW[3])
+                    {
+                        maxW[3] = dist;
+                        maxId[3] = i;
+                    }
+                }
+            }
+        }
+    }
+
+    vertsData[gid.x].bonesId[0] = maxId[0];
+    vertsData[gid.x].bonesId[1] = maxId[1];
+    vertsData[gid.x].bonesId[2] = maxId[2];
+    vertsData[gid.x].bonesId[3] = maxId[3];
+    float powerNum = 1;
+    maxW[0] = pow(maxW[0],powerNum);
+    maxW[1] = pow(maxW[1],powerNum);
+    maxW[2] = pow(maxW[2],powerNum);
+    maxW[3] = 0;//pow(maxW[3],powerNum);
+
+    float wSum = maxW[0]+maxW[1]+maxW[2]+maxW[3];
+    float4 n = float4(maxW[0],maxW[1],maxW[2],maxW[3])/wSum;
+
+    vertsData[gid.x].bonesWeight[0] = n.x;
+    vertsData[gid.x].bonesWeight[1] = n.y;
+    vertsData[gid.x].bonesWeight[2] = n.z;
+    vertsData[gid.x].bonesWeight[3] = n.w; 
+}
